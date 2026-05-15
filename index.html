@@ -1,407 +1,377 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Trash2, Share2, ShoppingBag, ChevronLeft, MousePointer2, Sparkles, X, Plus, Camera, Image as ImageIcon, Loader2 } from 'lucide-react';
-
-// API Key (Runtime provided)
-const apiKey = "";
-
-const PRESET_ITEMS = {
-  'School Life': [
-    { name: '노트북', weight: 1.5, emoji: '💻' },
-    { name: '아이패드', weight: 0.5, emoji: '📱' },
-    { name: '전공서적', weight: 1.2, emoji: '📚' },
-    { name: '필통', weight: 0.3, emoji: '✏️' },
-    { name: '헤드폰', weight: 0.3, emoji: '🎧' },
-    { name: '텀블러', weight: 0.7, emoji: '🥤' }
-  ],
-  'Daily': [
-    { name: '지갑', weight: 0.15, emoji: '👛' },
-    { name: '파우치', weight: 0.4, emoji: '💄' },
-    { name: '핸드크림', weight: 0.05, emoji: '🧴' },
-    { name: '우산', weight: 0.3, emoji: '⛱️' },
-    { name: '안경', weight: 0.1, emoji: '👓' }
-  ]
-};
-
-const STRAIN_LEVELS = [
-  { level: 1, label: '깃털처럼 가뿐', emoji: '🧚', color: '#86EFAC' },
-  { level: 2, label: '딱 적당한 무게', emoji: '✨', color: '#60A5FA' },
-  { level: 3, label: '조금 묵직해요', emoji: '😟', color: '#FBBF24' },
-  { level: 4, label: '어깨가 아파요', emoji: '🐢', color: '#F97316' },
-  { level: 5, label: '척추 탈출 경보', emoji: '💀', color: '#F472B6' }
-];
-
-const App = () => {
-  const [items, setItems] = useState([]);
-  const [customStickers, setCustomStickers] = useState([]);
-  const [activeTab, setActiveTab] = useState('School Life');
-  const [view, setView] = useState('home');
-  const [comment, setComment] = useState("");
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
-  const canvasRef = useRef(null);
-
-  const totalWeight = items.reduce((acc, curr) => acc + curr.weight, 0);
-  const currentLevel = (() => {
-    if (totalWeight <= 0.5) return STRAIN_LEVELS[0];
-    if (totalWeight <= 2.5) return STRAIN_LEVELS[1];
-    if (totalWeight <= 4.5) return STRAIN_LEVELS[2];
-    if (totalWeight <= 7.5) return STRAIN_LEVELS[3];
-    return STRAIN_LEVELS[4];
-  })();
-
-  // --- 드래그 앤 드롭 핸들러 ---
-  const onDragStart = (e, item) => {
-    e.dataTransfer.setData("application/json", JSON.stringify(item));
-  };
-
-  const onDrop = (e) => {
-    e.preventDefault();
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * 100;
-    const y = ((e.clientY - rect.top) / rect.height) * 100;
-    
-    const data = e.dataTransfer.getData("application/json");
-    if (data) {
-      const baseItem = JSON.parse(data);
-      addItemAtPosition(baseItem, x, y);
-    }
-  };
-
-  const addItemAtPosition = (baseItem, x, y) => {
-    const newItem = {
-      ...baseItem,
-      id: Date.now() + Math.random(),
-      rotation: Math.random() * 20 - 10,
-      x: x,
-      y: y
-    };
-    setItems(prev => [...prev, newItem]);
-  };
-
-  // --- 커스텀 스티커 생성 (누끼 기능 시뮬레이션) ---
-  const handleFileUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    setIsUploading(true);
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const base64Data = event.target.result.split(',')[1];
-      
-      try {
-        // Gemini API를 사용하여 배경 제거(누끼) 및 분석 수행
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{
-              parts: [
-                { text: "이 이미지에서 주된 물체만 남기고 배경을 투명하게 처리한 이미지를 생성해줘. 또한 이 물체가 무엇인지 짧은 단어로 말해주고 예상 무게(kg)도 알려줘. JSON 형식으로: { 'name': '물체이름', 'weight': 0.5 }" },
-                { inlineData: { mimeType: "image/png", data: base64Data } }
-              ]
-            }],
-            generationConfig: { responseMimeType: "application/json" }
-          })
-        });
-
-        const result = await response.json();
-        const info = JSON.parse(result.candidates[0].content.parts[0].text);
-        
-        // 실제로는 이미지를 편집하여 돌려주는 API가 필요하지만, 
-        // 여기서는 업로드한 이미지를 '누끼 딴 느낌'으로 처리하여 스티커 목록에 추가합니다.
-        const newCustomSticker = {
-          name: info.name || "나의 물건",
-          weight: info.weight || 0.3,
-          image: event.target.result,
-          isCustom: true
-        };
-
-        setCustomStickers(prev => [newCustomSticker, ...prev]);
-        setActiveTab('Custom');
-      } catch (error) {
-        console.error("누끼 따기 실패:", error);
-      } finally {
-        setIsUploading(false);
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const removeItem = (id) => {
-    setItems(prev => prev.filter(i => i.id !== id));
-  };
-
-  const generateReport = () => {
-    setIsAnalyzing(true);
-    setView('result');
-    setTimeout(() => {
-      let msg = "";
-      if (totalWeight <= 1.0) msg = "가방이 너무 가벼워서 요정이 날아갈 것 같아요! 필요한 걸 빠뜨린 건 아닌지 확인해봐요. 🧚";
-      else if (totalWeight <= 4.0) msg = "가장 이상적인 무게예요! 갓생 살 준비가 완벽하게 되었네요. 어깨도 기뻐하고 있어요. ✨";
-      else msg = "가방 속에 돌덩이를 넣으셨나요? 척추가 비명을 지르고 있어요! 당장 짐을 덜어내세요. 🐢";
-      setComment(msg);
-      setIsAnalyzing(false);
-    }, 3000);
-  };
-
-  if (view === 'home') {
-    return (
-      <div className="min-h-screen bg-[#FDFDFD] flex flex-col items-center justify-center p-6 text-center" 
-           style={{ backgroundImage: 'radial-gradient(#E2E8F0 1.5px, transparent 1.5px)', backgroundSize: '30px 30px' }}>
-        <div className="relative mb-12">
-           <div className="w-64 h-64 bg-white rounded-[60px] border-[12px] border-white shadow-[0_30px_60px_rgba(0,0,0,0.1)] flex items-center justify-center transform hover:rotate-3 transition-transform">
-              <div className="bg-blue-50 w-48 h-48 rounded-[40px] flex items-center justify-center">
-                 <ShoppingBag size={100} className="text-blue-500" />
-              </div>
-           </div>
-           <div className="absolute -top-4 -left-4 bg-pink-500 text-white px-6 py-2 rounded-full border-4 border-white font-black text-xl shadow-lg -rotate-12">MY BAG</div>
-        </div>
-        <h1 className="text-7xl font-black mb-6 tracking-tighter text-gray-900 italic" style={{ letterSpacing: '-2px' }}>
-          가방 요정 <span className="text-blue-500 underline decoration-yellow-300">다이어리</span>
-        </h1>
-        <p className="text-gray-400 text-xl font-bold mb-12">사진을 찍어 나만의 스티커를 만들어보세요</p>
-        <button 
-          onClick={() => setView('editor')}
-          className="px-16 py-6 bg-black text-white text-3xl font-black rounded-[30px] shadow-[0_20px_0_0_#333] hover:translate-y-1 hover:shadow-[0_10px_0_0_#333] active:translate-y-4 active:shadow-none transition-all"
-        >
-          가방 꾸미기 시작 🧚
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-[#FDFDFD] flex flex-col md:flex-row" 
-         style={{ backgroundImage: 'radial-gradient(#CBD5E1 1px, transparent 1px)', backgroundSize: '20px 20px' }}>
-      
-      {/* 캔버스 구역 (공책) */}
-      <div className="flex-1 p-6 md:p-10 flex flex-col gap-6 relative overflow-hidden">
-        <div className="flex items-center justify-between z-10">
-          <button onClick={() => setView('home')} className="p-4 bg-white rounded-2xl shadow-sm border border-gray-200 hover:bg-gray-50">
-            <ChevronLeft size={28} />
-          </button>
-          <div className="flex flex-col items-end">
-            <h2 className="text-4xl font-black italic text-gray-800 tracking-tighter">PAGE. 01</h2>
-            <div className="h-2 w-32 bg-blue-500 rounded-full mt-1"></div>
-          </div>
-        </div>
-
-        {/* 메인 캔버스: 드롭 구역 */}
-        <div 
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={onDrop}
-          className="flex-1 relative rounded-[50px] bg-white border-4 border-gray-100 shadow-[0_20px_50px_rgba(0,0,0,0.05)] overflow-hidden"
-          style={{ 
-            backgroundImage: `
-              linear-gradient(#f1f5f9 1px, transparent 1px),
-              linear-gradient(90deg, #f1f5f9 1px, transparent 1px)
-            `,
-            backgroundSize: '40px 40px'
-          }}
-        >
-          {items.length === 0 && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center opacity-10 pointer-events-none">
-              <MousePointer2 size={120} className="mb-6" />
-              <p className="text-4xl font-black italic">DRAG & STICK</p>
-            </div>
-          )}
-
-          {/* 가방 바닥 (레퍼런스 느낌) */}
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-5">
-             <div className="w-[80%] aspect-square bg-gray-200 rounded-[100px]"></div>
-          </div>
-
-          {/* 스티커들 */}
-          {items.map((item) => (
-            <div 
-              key={item.id}
-              className="absolute group transition-transform hover:z-20"
-              style={{ left: `${item.x}%`, top: `${item.y}%`, transform: `translate(-50%, -50%) rotate(${item.rotation}deg)` }}
-            >
-              <div className="relative flex flex-col items-center">
-                {/* 다이컷 스티커: 배경 모양대로 흰 테두리 */}
-                <div className="p-2 bg-white rounded-[20px] shadow-[0_10px_30px_rgba(0,0,0,0.15)] border-[5px] border-white ring-2 ring-gray-100 hover:scale-125 transition-transform duration-200 overflow-visible">
-                   {item.image ? (
-                     <img src={item.image} alt={item.name} className="w-24 h-24 object-contain rounded-lg" />
-                   ) : (
-                     <span className="text-7xl block select-none filter drop-shadow-sm">{item.emoji}</span>
-                   )}
-                   <button onClick={() => removeItem(item.id)} className="absolute -top-4 -right-4 bg-red-500 text-white p-2 rounded-full opacity-0 group-hover:opacity-100 transition-opacity border-4 border-white shadow-lg">
-                     <X size={16} />
-                   </button>
-                </div>
-                <div className="mt-3 bg-black text-white px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-md">
-                  {item.name}
-                </div>
-              </div>
-            </div>
-          ))}
-
-          {/* 하단 요약 패널 */}
-          <div className="absolute bottom-10 left-1/2 -translate-x-1/2 w-[85%] z-30">
-            <div className="bg-white/80 backdrop-blur-2xl border-4 border-white p-6 rounded-[35px] shadow-[0_20px_50px_rgba(0,0,0,0.1)] flex items-center justify-between">
-              <div className="flex items-center gap-6">
-                <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center text-4xl border-2 border-blue-100 shadow-inner">
-                  {currentLevel.emoji}
-                </div>
-                <div>
-                  <p className="text-[10px] font-black text-blue-400 uppercase tracking-[3px] mb-0.5">Health Check</p>
-                  <p className="text-2xl font-black text-gray-800 tracking-tighter">{currentLevel.label}</p>
-                </div>
-              </div>
-              <button 
-                disabled={items.length === 0}
-                onClick={generateReport}
-                className="px-10 py-5 bg-black text-white rounded-[22px] font-black text-lg hover:bg-blue-500 transition-all shadow-xl disabled:opacity-20 flex items-center gap-2"
-              >
-                진단 결과보기 <Sparkles size={18} />
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* 오른쪽 사이드바 (스티커 보관함) */}
-      <div className="w-full md:w-[450px] bg-white border-l-4 border-gray-100 p-10 h-screen flex flex-col shadow-[-10px_0_30px_rgba(0,0,0,0.02)] z-40">
-        <div className="mb-10">
-          <h3 className="text-5xl font-black mb-6 tracking-tighter italic">Stickers.</h3>
-          <div className="flex gap-2 bg-gray-50 p-1.5 rounded-[20px]">
-            {['School Life', 'Daily', 'Custom'].map(cat => (
-              <button 
-                key={cat}
-                onClick={() => setActiveTab(cat)}
-                className={`flex-1 py-3 rounded-[15px] font-black text-sm transition-all ${activeTab === cat ? 'bg-white text-black shadow-md' : 'text-gray-400 hover:text-gray-600'}`}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto custom-scrollbar pr-4">
-          {activeTab === 'Custom' ? (
-            <div className="space-y-6">
-               <label className="group block w-full aspect-square border-4 border-dashed border-gray-200 rounded-[40px] hover:border-blue-500 transition-all cursor-pointer relative overflow-hidden bg-gray-50">
-                  <input type="file" accept="image/*" className="hidden" onChange={handleFileUpload} disabled={isUploading} />
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
-                    {isUploading ? (
-                      <>
-                        <Loader2 className="animate-spin text-blue-500" size={40} />
-                        <p className="text-sm font-black text-gray-400">누끼 따는 중...</p>
-                      </>
-                    ) : (
-                      <>
-                        <div className="p-5 bg-white rounded-full shadow-lg text-blue-500 group-hover:scale-110 transition-transform">
-                          <Camera size={40} />
-                        </div>
-                        <p className="text-sm font-black text-gray-400">사진 찍어 스티커 만들기</p>
-                      </>
-                    )}
-                  </div>
-               </label>
-               
-               <div className="grid grid-cols-2 gap-6">
-                  {customStickers.map((sticker, idx) => (
-                    <div 
-                      key={idx}
-                      draggable
-                      onDragStart={(e) => onDragStart(e, sticker)}
-                      onClick={() => addItemAtPosition(sticker, 50, 50)}
-                      className="group flex flex-col items-center gap-3 cursor-grab"
-                    >
-                      <div className="w-full aspect-square bg-gray-50 rounded-[30px] border-4 border-transparent group-hover:border-blue-100 flex items-center justify-center p-4 transition-all hover:rotate-3 shadow-sm">
-                         <img src={sticker.image} alt={sticker.name} className="w-full h-full object-contain filter drop-shadow-lg" />
-                      </div>
-                      <p className="text-[10px] font-black text-gray-400 group-hover:text-black uppercase">{sticker.name}</p>
-                    </div>
-                  ))}
-               </div>
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 gap-8">
-              {PRESET_ITEMS[activeTab].map((item, idx) => (
-                <div 
-                  key={idx}
-                  draggable
-                  onDragStart={(e) => onDragStart(e, item)}
-                  onClick={() => addItemAtPosition(item, 50, 50)}
-                  className="group flex flex-col items-center gap-3 cursor-grab"
-                >
-                  <div className="w-full aspect-square bg-[#F9F9F9] rounded-[35px] border-4 border-transparent group-hover:bg-blue-50/50 group-hover:border-blue-200 flex items-center justify-center text-6xl transition-all group-hover:-translate-y-1 shadow-sm relative">
-                    <span className="filter drop-shadow-[0_10px_20px_rgba(0,0,0,0.1)]">{item.emoji}</span>
-                    <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Plus size={20} className="text-blue-400" />
-                    </div>
-                  </div>
-                  <p className="text-[11px] font-black text-gray-400 group-hover:text-black uppercase tracking-tighter">{item.name}</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* 결과 모달 */}
-      {view === 'result' && (
-        <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-xl flex items-center justify-center p-6">
-          <div className="bg-white w-full max-w-lg rounded-[60px] border-[15px] border-white shadow-[0_40px_100px_rgba(0,0,0,0.3)] overflow-hidden animate-in zoom-in duration-300">
-            <div className="p-12 space-y-10">
-              <div className="flex justify-between items-center">
-                <div className="px-6 py-2 bg-yellow-400 text-black rounded-full font-black text-xs uppercase tracking-widest shadow-md -rotate-2">Diagnosis Card</div>
-                <button onClick={() => setView('editor')} className="text-gray-300 hover:text-black transition-colors"><X size={32} /></button>
-              </div>
-
-              {isAnalyzing ? (
-                <div className="py-16 text-center space-y-8">
-                   <div className="relative inline-block">
-                     <div className="w-24 h-24 border-[10px] border-blue-100 border-t-blue-500 rounded-full animate-spin"></div>
-                     <div className="absolute inset-0 flex items-center justify-center">🧚</div>
-                   </div>
-                   <p className="text-3xl font-black text-gray-800 italic animate-pulse tracking-tighter">요정이 가방을 관찰하고 있어요...</p>
-                </div>
-              ) : (
-                <div className="space-y-10">
-                  <div className="flex items-center gap-8">
-                    <div className="text-8xl p-6 bg-gray-50 rounded-[40px] shadow-inner">{currentLevel.emoji}</div>
-                    <div>
-                      <h4 className="text-4xl font-black text-gray-900 tracking-tight mb-1 italic">{currentLevel.label}</h4>
-                      <p className="text-lg font-bold text-gray-400">Total Weight: <span className="text-blue-500">{totalWeight.toFixed(2)}kg</span></p>
-                    </div>
-                  </div>
-                  <div className="p-10 bg-gray-50 rounded-[45px] border-4 border-dashed border-gray-200 relative overflow-hidden">
-                    <p className="text-2xl font-bold text-gray-700 leading-relaxed italic relative z-10 break-keep">
-                      "{comment}"
-                    </p>
-                    <div className="absolute bottom-4 right-6 text-5xl opacity-10 rotate-12">✨</div>
-                  </div>
-                  <div className="flex gap-4">
-                    <button onClick={() => setView('editor')} className="flex-1 py-6 bg-gray-100 text-gray-400 rounded-3xl font-black text-xl hover:bg-gray-200 hover:text-gray-600 transition-all uppercase italic">Back</button>
-                    <button 
-                      onClick={() => {
-                        const shareText = `🧚 가방 요정 진단!\n⚖️ 무게: ${totalWeight.toFixed(2)}kg\n👀 상태: ${currentLevel.label}\n\n#가방요정 #StickerBook #GOD생`;
-                        navigator.clipboard.writeText(shareText);
-                      }}
-                      className="flex-[2] py-6 bg-blue-500 text-white rounded-3xl font-black text-xl shadow-2xl shadow-blue-200 hover:bg-black transition-all flex items-center justify-center gap-3 uppercase italic"
-                    >
-                      <Share2 size={24} /> Share Card
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      <style>{`
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>가방 요정 스티커북</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@900&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Pretendard', sans-serif;
+            background-color: #fdfdfd;
+            background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+        /* 공책 줄무늬 캔버스 */
+        .notebook-canvas {
+            background-image: 
+                linear-gradient(#f1f5f9 1px, transparent 1px),
+                linear-gradient(90deg, #f1f5f9 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+        /* 스티커 다이컷 테두리 효과 */
+        .sticker-cut {
+            filter: drop-shadow(0 10px 20px rgba(0,0,0,0.15));
+            transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .sticker-cut:hover {
+            transform: scale(1.1) rotate(5deg);
+            z-index: 50;
+        }
+        /* 누끼 느낌을 위한 흰색 외곽선 */
+        .die-cut-border {
+            padding: 8px;
+            background: white;
+            border-radius: 20px;
+            border: 5px solid white;
+            box-shadow: 0 0 0 2px rgba(0,0,0,0.05);
+        }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 20px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        @keyframes zoom-in { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-        .animate-in { animation: zoom-in 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
-      `}</style>
-    </div>
-  );
-};
+        
+        @keyframes bounce-subtle {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+        .animate-bounce-subtle { animation: bounce-subtle 2s infinite ease-in-out; }
+    </style>
+</head>
+<body class="min-h-screen overflow-hidden">
 
-export default App;
+    <!-- 메인 레이아웃 -->
+    <div id="app" class="flex flex-col md:flex-row h-screen">
+        
+        <!-- 왼쪽: 캔버스 (가방 꾸미기 영역) -->
+        <div class="flex-1 p-6 md:p-10 flex flex-col gap-4 relative">
+            <div class="flex justify-between items-center z-10">
+                <div class="bg-black text-white px-6 py-2 rounded-full font-black text-sm italic shadow-lg">PAGE. 01</div>
+                <h1 class="text-3xl font-black italic tracking-tighter">BAG FAIRY <span class="text-blue-500 underline">DIARY</span></h1>
+            </div>
+
+            <!-- 드롭 구역 -->
+            <div id="drop-zone" class="flex-1 notebook-canvas relative rounded-[50px] bg-white border-4 border-gray-100 shadow-2xl overflow-hidden" ondragover="event.preventDefault()" ondrop="handleDrop(event)">
+                <div id="empty-msg" class="absolute inset-0 flex flex-col items-center justify-center opacity-10 pointer-events-none">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mb-4 animate-bounce-subtle"><path d="m15 18-6-6 6-6"/></svg>
+                    <p class="text-4xl font-black italic">DRAG STICKERS HERE</p>
+                </div>
+
+                <!-- 가방 위치 가이드 (장식) -->
+                <div class="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.03]">
+                    <div class="w-[70%] aspect-square border-[40px] border-black rounded-[100px]"></div>
+                </div>
+
+                <!-- 실시간 무게 요약 바 -->
+                <div class="absolute bottom-8 left-1/2 -translate-x-1/2 w-[90%] max-w-xl z-40">
+                    <div class="bg-white/90 backdrop-blur-xl border-4 border-white p-5 rounded-[30px] shadow-2xl flex items-center justify-between">
+                        <div class="flex items-center gap-4">
+                            <div id="status-emoji" class="text-4xl w-14 h-14 bg-blue-50 rounded-2xl flex items-center justify-center border-2 border-blue-100">🧚</div>
+                            <div>
+                                <p class="text-[10px] font-black text-blue-400 uppercase tracking-widest">Weight Status</p>
+                                <p id="status-label" class="text-xl font-black text-gray-800">가뿐한 상태</p>
+                            </div>
+                        </div>
+                        <button onclick="showResult()" class="px-8 py-4 bg-black text-white rounded-2xl font-black hover:bg-blue-600 transition-all shadow-lg active:scale-95">진단하기</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 오른쪽: 스티커 보관함 -->
+        <div class="w-full md:w-[400px] bg-white border-l-4 border-gray-100 p-8 h-screen flex flex-col z-50">
+            <h3 class="text-4xl font-black mb-6 tracking-tighter italic">Stickers</h3>
+            
+            <!-- 탭 메뉴 -->
+            <div class="flex gap-2 bg-gray-100 p-1 rounded-2xl mb-8">
+                <button onclick="switchTab('school')" id="tab-school" class="flex-1 py-3 rounded-xl font-black text-sm bg-white shadow-sm">School</button>
+                <button onclick="switchTab('daily')" id="tab-daily" class="flex-1 py-3 rounded-xl font-black text-sm text-gray-400">Daily</button>
+                <button onclick="switchTab('custom')" id="tab-custom" class="flex-1 py-3 rounded-xl font-black text-sm text-gray-400">Custom</button>
+            </div>
+
+            <!-- 스티커 리스트 -->
+            <div id="sticker-list" class="flex-1 overflow-y-auto custom-scrollbar pr-2 grid grid-cols-2 gap-4">
+                <!-- JS에서 동적으로 생성 -->
+            </div>
+
+            <!-- 커스텀 업로드 버튼 (Custom 탭일 때만 표시) -->
+            <div id="custom-upload-area" class="hidden mt-4">
+                <label class="flex flex-col items-center justify-center w-full aspect-square border-4 border-dashed border-gray-200 rounded-[30px] hover:border-blue-400 cursor-pointer bg-gray-50 transition-all">
+                    <input type="file" class="hidden" accept="image/*" onchange="handleCustomUpload(event)">
+                    <div id="upload-inner">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-blue-500 mb-2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                        <p class="text-xs font-black text-gray-400 uppercase">누끼 따기 시작</p>
+                    </div>
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <!-- 결과 레이어 (모달) -->
+    <div id="result-modal" class="fixed inset-0 z-[100] bg-black/60 backdrop-blur-md hidden items-center justify-center p-6">
+        <div class="bg-white w-full max-w-md rounded-[50px] border-[12px] border-white shadow-2xl p-10 space-y-8 animate-in scale-95 opacity-0">
+            <div class="flex justify-between items-center">
+                <span class="bg-yellow-400 px-4 py-1 rounded-full font-black text-[10px] -rotate-2 shadow">DIAGNOSIS</span>
+                <button onclick="closeModal()" class="text-gray-300 hover:text-black">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <div class="flex items-center gap-6">
+                <div id="res-emoji" class="text-7xl p-4 bg-gray-50 rounded-3xl shadow-inner">🧚</div>
+                <div>
+                    <h4 id="res-label" class="text-3xl font-black italic tracking-tighter">가뿐한 요정</h4>
+                    <p id="res-weight" class="text-gray-400 font-bold">Total: 0.00kg</p>
+                </div>
+            </div>
+            <div class="p-8 bg-gray-50 rounded-[35px] border-4 border-dashed border-gray-200">
+                <p id="res-comment" class="text-xl font-bold text-gray-700 leading-relaxed italic break-keep">
+                    "가방 속에 아무것도 없네요! 요정이 심심해해요."
+                </p>
+            </div>
+            <button onclick="closeModal()" class="w-full py-5 bg-blue-500 text-white rounded-[25px] font-black text-xl shadow-xl shadow-blue-100 hover:bg-black transition-all">다시 꾸미기</button>
+        </div>
+    </div>
+
+    <script>
+        const apiKey = "";
+        let currentItems = [];
+        let customStickers = [];
+        let currentTab = 'school';
+
+        const PRESETS = {
+            school: [
+                { name: '노트북', weight: 1.5, emoji: '💻' },
+                { name: '아이패드', weight: 0.6, emoji: '📱' },
+                { name: '전공책', weight: 1.2, emoji: '📚' },
+                { name: '필통', weight: 0.3, emoji: '✏️' },
+                { name: '헤드폰', weight: 0.4, emoji: '🎧' }
+            ],
+            daily: [
+                { name: '지갑', weight: 0.2, emoji: '👛' },
+                { name: '텀블러', weight: 0.8, emoji: '🥤' },
+                { name: '파우치', weight: 0.5, emoji: '💄' },
+                { name: '우산', weight: 0.4, emoji: '⛱️' },
+                { name: '안경', weight: 0.1, emoji: '👓' }
+            ]
+        };
+
+        const STRAIN = [
+            { threshold: 0.5, label: '깃털처럼 가뿐', emoji: '🧚', comment: '가방이 너무 가벼워서 요정이 날아갈 것 같아요! 🧚' },
+            { threshold: 2.5, label: '딱 적당한 무게', emoji: '✨', comment: '완벽한 무게예요! 어깨도 요정도 모두 행복합니다. ✨' },
+            { threshold: 5.0, label: '조금 묵직해요', emoji: '😟', comment: '조금 무겁네요. 어깨 스트레칭이 필요할 것 같아요. 🧘' },
+            { threshold: 8.0, label: '어깨 탈출 경보', emoji: '🐢', comment: '가방 속에 돌덩이를 넣으셨나요? 당장 짐을 덜어내세요! 🐢' },
+            { threshold: Infinity, label: '척추 탈출!', emoji: '💀', comment: '이건 가방이 아니라 흉기예요! 건강을 위해 짐을 줄여요! 💀' }
+        ];
+
+        function init() {
+            renderStickerList();
+        }
+
+        function switchTab(tab) {
+            currentTab = tab;
+            ['school', 'daily', 'custom'].forEach(t => {
+                const btn = document.getElementById(`tab-${t}`);
+                btn.className = `flex-1 py-3 rounded-xl font-black text-sm ${t === tab ? 'bg-white shadow-sm text-black' : 'text-gray-400'}`;
+            });
+            
+            document.getElementById('custom-upload-area').classList.toggle('hidden', tab !== 'custom');
+            renderStickerList();
+        }
+
+        function renderStickerList() {
+            const list = document.getElementById('sticker-list');
+            list.innerHTML = '';
+            
+            let items = currentTab === 'custom' ? customStickers : PRESETS[currentTab];
+            
+            items.forEach((item, index) => {
+                const div = document.createElement('div');
+                div.className = "group flex flex-col items-center gap-2 cursor-grab active:cursor-grabbing";
+                div.draggable = true;
+                div.ondragstart = (e) => {
+                    e.dataTransfer.setData("application/json", JSON.stringify(item));
+                };
+                div.onclick = () => {
+                    // 클릭해서도 추가 가능하게
+                    const x = 30 + Math.random() * 40;
+                    const y = 30 + Math.random() * 40;
+                    addStickerToCanvas(item, x, y);
+                };
+
+                const box = document.createElement('div');
+                box.className = "w-full aspect-square bg-gray-50 rounded-[30px] flex items-center justify-center text-5xl hover:bg-blue-50 hover:scale-105 transition-all shadow-sm border-2 border-transparent hover:border-blue-100";
+                
+                if (item.image) {
+                    box.innerHTML = `<img src="${item.image}" class="w-full h-full object-contain p-4 drop-shadow-md">`;
+                } else {
+                    box.innerHTML = `<span class="drop-shadow-md">${item.emoji}</span>`;
+                }
+
+                const name = document.createElement('p');
+                name.className = "text-[10px] font-black text-gray-400 group-hover:text-black uppercase";
+                name.innerText = item.name;
+
+                div.appendChild(box);
+                div.appendChild(name);
+                list.appendChild(div);
+            });
+        }
+
+        async function handleCustomUpload(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const inner = document.getElementById('upload-inner');
+            const originalHTML = inner.innerHTML;
+            inner.innerHTML = `<div class="animate-spin rounded-full h-8 w-8 border-4 border-blue-500 border-t-transparent mb-2"></div><p class="text-[10px] font-black">누끼 따는 중...</p>`;
+
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+                const base64Data = event.target.result.split(',')[1];
+                try {
+                    // Gemini API를 사용하여 물체 분석 시뮬레이션
+                    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{
+                                parts: [
+                                    { text: "이 이미지의 메인 물체가 무엇인지 단어 하나로 말해주고, 예상 무게(kg)를 알려줘. JSON: { 'name': '이름', 'weight': 0.5 }" },
+                                    { inlineData: { mimeType: "image/png", data: base64Data } }
+                                ]
+                            }],
+                            generationConfig: { responseMimeType: "application/json" }
+                        })
+                    });
+                    const result = await response.json();
+                    const info = JSON.parse(result.candidates[0].content.parts[0].text);
+                    
+                    customStickers.unshift({
+                        name: info.name || "커스텀",
+                        weight: info.weight || 0.5,
+                        image: event.target.result
+                    });
+                    renderStickerList();
+                } catch (err) {
+                    console.error(err);
+                } finally {
+                    inner.innerHTML = originalHTML;
+                }
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            const data = e.dataTransfer.getData("application/json");
+            if (!data) return;
+
+            const rect = document.getElementById('drop-zone').getBoundingClientRect();
+            const x = ((e.clientX - rect.left) / rect.width) * 100;
+            const y = ((e.clientY - rect.top) / rect.height) * 100;
+            
+            addStickerToCanvas(JSON.parse(data), x, y);
+        }
+
+        function addStickerToCanvas(item, x, y) {
+            document.getElementById('empty-msg').style.display = 'none';
+            const id = Date.now();
+            const rotation = Math.random() * 20 - 10;
+            
+            const sticker = document.createElement('div');
+            sticker.id = `sticker-${id}`;
+            sticker.className = "absolute sticker-cut group cursor-move flex flex-col items-center";
+            sticker.style.left = `${x}%`;
+            sticker.style.top = `${y}%`;
+            sticker.style.transform = `translate(-50%, -50%) rotate(${rotation}deg)`;
+
+            const borderWrap = document.createElement('div');
+            borderWrap.className = "die-cut-border relative";
+            
+            if (item.image) {
+                borderWrap.innerHTML = `<img src="${item.image}" class="w-24 h-24 object-contain">`;
+            } else {
+                borderWrap.innerHTML = `<span class="text-7xl select-none">${item.emoji}</span>`;
+            }
+
+            // 삭제 버튼
+            const delBtn = document.createElement('button');
+            delBtn.className = "absolute -top-4 -right-4 bg-red-500 text-white w-8 h-8 rounded-full border-4 border-white shadow-lg opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center font-black";
+            delBtn.innerText = "X";
+            delBtn.onclick = () => {
+                sticker.remove();
+                currentItems = currentItems.filter(i => i.id !== id);
+                updateStatus();
+            };
+
+            const label = document.createElement('div');
+            label.className = "mt-2 bg-black text-white px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-tight shadow-md";
+            label.innerText = item.name;
+
+            sticker.appendChild(borderWrap);
+            sticker.appendChild(delBtn);
+            sticker.appendChild(label);
+            document.getElementById('drop-zone').appendChild(sticker);
+
+            currentItems.push({ ...item, id });
+            updateStatus();
+        }
+
+        function updateStatus() {
+            const total = currentItems.reduce((acc, curr) => acc + curr.weight, 0);
+            let status = STRAIN[0];
+            for (let s of STRAIN) {
+                if (total <= s.threshold) {
+                    status = s;
+                    break;
+                }
+            }
+            
+            document.getElementById('status-emoji').innerText = status.emoji;
+            document.getElementById('status-label').innerText = status.label;
+            
+            // 결과창 데이터용 업데이트
+            window.currentReport = { total, status };
+        }
+
+        function showResult() {
+            if (currentItems.length === 0) {
+                updateStatus(); // 기본값 세팅
+            }
+            const { total, status } = window.currentReport || { total: 0, status: STRAIN[0] };
+            
+            document.getElementById('res-emoji').innerText = status.emoji;
+            document.getElementById('res-label').innerText = status.label;
+            document.getElementById('res-weight').innerText = `Total: ${total.toFixed(2)}kg`;
+            document.getElementById('res-comment').innerText = `"${status.comment}"`;
+            
+            const modal = document.getElementById('result-modal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            setTimeout(() => {
+                modal.querySelector('div').classList.remove('scale-95', 'opacity-0');
+            }, 10);
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('result-modal');
+            modal.querySelector('div').classList.add('scale-95', 'opacity-0');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            }, 300);
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
